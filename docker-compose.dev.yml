@@ -2,7 +2,7 @@ version: '3.5'
 
 services:
   app:
-    image: ${CI_REPOSITORY_IMAGE}:${CI_COMMIT_SHORT_SHA}
+    image: ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}
     configs:
       - source: nginx_app
         target: /etc/nginx/conf.d/app.conf
