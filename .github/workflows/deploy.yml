@@ -1,0 +1,72 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  CI_REGISTRY: ghcr.io
+  CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: self-hosted
+    outputs:
+      image_tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set variables
+        id: vars
+        run: echo "tag=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+      
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      
+      - name: Build and push
+        run: |
+          docker build -t ${CI_REGISTRY_IMAGE}:${{ steps.vars.outputs.tag }} .
+          docker push ${CI_REGISTRY_IMAGE}:${{ steps.vars.outputs.tag }}
+
+  deploy-dev:
+    needs: build
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Docker Context (DEV)
+        run: |
+          mkdir -p $HOME/.docker
+          echo "${{ secrets.DOCKER_CA_DEV }}" | base64 -d > $HOME/.docker/ca.pem
+          echo "${{ secrets.DOCKER_CERT_DEV }}" | base64 -d > $HOME/.docker/cert.pem
+          echo "${{ secrets.DOCKER_KEY_DEV }}" | base64 -d > $HOME/.docker/key.pem
+          chmod 600 $HOME/.docker/*
+      
+      - name: Deploy to DEV
+        run: |
+          docker context rm dev --force || true
+          docker context create dev --docker "host=tcp://dev.rbr.kis.im:2376,ca=$HOME/.docker/ca.pem,cert=$HOME/.docker/cert.pem,key=$HOME/.docker/key.pem"
+          docker context use dev
+          docker stack deploy -c docker-compose.dev.yml landing-dev
+
+  deploy-prod:
+    needs: build
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Docker Context (PROD)
+        run: |
+          mkdir -p $HOME/.docker
+          echo "${{ secrets.DOCKER_CA_PROD }}" | base64 -d > $HOME/.docker/ca.pem
+          echo "${{ secrets.DOCKER_CERT_PROD }}" | base64 -d > $HOME/.docker/cert.pem
+          echo "${{ secrets.DOCKER_KEY_PROD }}" | base64 -d > $HOME/.docker/key.pem
+          chmod 600 $HOME/.docker/*
+      
+      - name: Deploy to PROD
+        run: |
+          docker context rm prod --force || true
+          docker context create prod --docker "host=tcp://rbr.kis.im:2376,ca=$HOME/.docker/ca.pem,cert=$HOME/.docker/cert.pem,key=$HOME/.docker/key.pem"
+          docker context use prod
+          docker stack deploy -c docker-compose.prod.yml landing-prod
