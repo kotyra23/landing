@@ -16,30 +16,47 @@ jobs:
       image_tag: ${{ steps.vars.outputs.tag }}
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Set variables
         id: vars
         run: echo "tag=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
-      
+
       - name: Login to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-      
+
       - name: Build and push
         run: |
           docker build -t ${CI_REGISTRY_IMAGE}:${{ steps.vars.outputs.tag }} .
           docker push ${CI_REGISTRY_IMAGE}:${{ steps.vars.outputs.tag }}
+          docker tag ${CI_REGISTRY_IMAGE}:${{ steps.vars.outputs.tag }} ${CI_REGISTRY_IMAGE}:latest
+          docker push ${CI_REGISTRY_IMAGE}:latest
+
+  deploy-dev:
+    needs: build
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Deploy to DEV
+        run: |
+          docker context use dev-mtls
+          docker stack deploy -c docker-compose.dev.yml landing-dev
+
+      - name: Reset context
+        if: always()
+        run: docker context use default
 
   deploy-prod:
     needs: build
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Deploy to PROD
         run: |
           docker context use rbr-mtls
           docker stack deploy -c docker-compose.prod.yml landing-prod
-          
+
       - name: Reset context
         if: always()
         run: docker context use default
